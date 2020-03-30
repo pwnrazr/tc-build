@@ -1,0 +1,16 @@
+--- 
+kind: pipeline
+name: AzureClang
+steps: 
+  - 
+    commands: 
+      - "apt-get -y update && apt-get -y upgrade && apt-get -y install bc bison ca-certificates ccache clang cmake curl file flex gcc g++ git libelf-dev libssl-dev make ninja-build python3 texinfo u-boot-tools zlib1g-dev"
+      - "bash build-tc*"
+    environment: 
+      TOKEN: 
+        from_secret: token
+    image: "ubuntu:19.10"
+    name: Azure-Clang
+    trigger: 
+      branch: 
+        - master
