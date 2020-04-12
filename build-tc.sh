@@ -39,7 +39,8 @@ tg_post_msg "<code>Building LLVM</code>"
 	--shallow-clone \
 	--incremental \
 	--build-type "Release" \
-	--pgo
+	--pgo \
+	--lto full
 
 # Build binutils
 msg "Building binutils..."
