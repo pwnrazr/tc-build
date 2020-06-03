@@ -17,7 +17,7 @@ from urllib.error import URLError
 
 # This is a known good revision of LLVM for building the kernel
 # To bump this, run 'PATH_OVERRIDE=<path_to_updated_toolchain>/bin kernel/build.sh --allyesconfig'
-GOOD_REVISION = 'ebad678857a94c32ce7b6931e9c642b32d278b67'
+GOOD_REVISION = '8a5aea7b50429cd4a459511286a7a9f1a7f4f5e2'
 
 
 class Directories:
@@ -53,6 +53,8 @@ def parse_parameters(root_folder):
     """
     parser = argparse.ArgumentParser(
         formatter_class=argparse.RawTextHelpFormatter)
+    clone_options = parser.add_mutually_exclusive_group()
+
     parser.add_argument("--assertions",
                         help=textwrap.dedent("""\
                         In a release configuration, assertions are not enabled. Assertions can help catch
@@ -66,7 +68,8 @@ def parse_parameters(root_folder):
                         By default, the script builds the master branch (tip of tree) of LLVM. If you would
                         like to build an older branch, use this parameter. This may be helpful in tracking
                         down an older bug to properly bisect. This value is just passed along to 'git checkout'
-                        so it can be a branch name, tag name, or hash.
+                        so it can be a branch name, tag name, or hash (unless '--shallow-clone' is used, which
+                        means a hash cannot be used because GitHub does not allow it).
 
                         """),
                         type=str,
@@ -131,7 +134,8 @@ def parse_parameters(root_folder):
                         "Android clang version..."). Useful when reverting or applying patches on top
                         of upstream clang to differentiate a toolchain built with this script from
                         upstream clang or to distinguish a toolchain built with this script from the
-                        system's clang. Defaults to ClangBuiltLinux.
+                        system's clang. Defaults to ClangBuiltLinux, can be set to an empty string to
+                        override this and have no vendor in the version string.
 
                         """),
                         type=str,
@@ -165,8 +169,12 @@ def parse_parameters(root_folder):
     parser.add_argument("--lto",
                         metavar="LTO_TYPE",
                         help=textwrap.dedent("""\
-                        Build the final compiler with either full LTO (full) or ThinLTO (thin), which can
+                        Build the final compiler with either ThinLTO (thin) or  full LTO (full), which can
                         improve compile time performance.
+
+                        Only use full LTO if you have more than 64 GB of memory. ThinLTO uses way less memory,
+                        compiles faster because it is fully multithreaded, and it has almost identical
+                        performance (within 1%% usually) to full LTO.
 
                         See the two links below for more information.
 
@@ -175,7 +183,7 @@ def parse_parameters(root_folder):
 
                         """),
                         type=str,
-                        choices=['full', 'thin'])
+                        choices=['thin', 'full'])
     parser.add_argument("-m",
                         "--march",
                         metavar="ARCH",
@@ -197,15 +205,6 @@ def parse_parameters(root_folder):
     parser.add_argument("--no-ccache",
                         help=textwrap.dedent("""\
                         Don't enable LLVM_CCACHE_BUILD. Useful for benchmarking clean builds.
-
-                        """),
-                        action="store_true")
-    parser.add_argument("-s",
-                        "--shallow-clone",
-                        help=textwrap.dedent("""\
-                        Only fetch the required objects and omit history when cloning the LLVM repo. This
-                        speeds up the initial clone, but may break updating to later revisions and thus
-                        necessitate a re-clone in the future.
 
                         """),
                         action="store_true")
@@ -231,6 +230,27 @@ def parse_parameters(root_folder):
 
                         """),
                         action="store_true")
+    clone_options.add_argument("-s",
+                               "--shallow-clone",
+                               help=textwrap.dedent("""\
+                        Only fetch the required objects and omit history when cloning the LLVM repo. This
+                        option is only used for the initial clone, not subsequent fetches. This can break
+                        the script's ability to automatically update the repo to newer revisions or branches
+                        so be careful using this. This option is really designed for continuous integration
+                        runs, where a one off clone is necessary. A better option is usually managing the repo
+                        yourself:
+
+                        https://github.com/ClangBuiltLinux/tc-build#build-llvmpy
+
+                        A couple of notes:
+
+                        1. This cannot be used with '--use-good-revision'.
+
+                        2. When no '--branch' is specified, only master is fetched. To work with other branches,
+                           a branch other than master needs to be specified when the repo is first cloned.
+
+                               """),
+                               action="store_true")
     parser.add_argument("-t",
                         "--targets",
                         help=textwrap.dedent("""\
@@ -246,15 +266,18 @@ def parse_parameters(root_folder):
                         """),
                         type=str,
                         default="AArch64;ARM;Mips;PowerPC;RISCV;SystemZ;X86")
-    parser.add_argument("--use-good-revision",
-                        help=textwrap.dedent("""\
+    clone_options.add_argument("--use-good-revision",
+                               help=textwrap.dedent("""\
                         By default, the script updates LLVM to the latest tip of tree revision, which may at times be
                         broken or not work right. With this option, it will checkout a known good revision of LLVM
                         that builds and works properly. If you use this option often, please remember to update the
                         script as the known good revision will change.
 
-                        """),
-                        action="store_true")
+                        NOTE: This option cannot be used with '--shallow-clone'.
+
+                               """),
+                               action="store_true")
+
     return parser.parse_args()
 
 
@@ -359,9 +382,7 @@ def check_cc_ld_variables(root_folder):
     else:
         # and we're using clang, try to find the fastest one
         if "clang" in cc:
-            possible_linkers = versioned_binaries("lld") + [
-                'lld', 'gold', 'bfd'
-            ]
+            possible_linkers = ['lld', 'gold', 'bfd']
             for linker in possible_linkers:
                 # We want to find lld wherever the clang we are using is located
                 ld = shutil.which("ld." + linker,
@@ -408,6 +429,30 @@ def check_dependencies():
         print(output)
 
 
+def repo_is_shallow(repo):
+    """
+    Check if repo is a shallow clone already (looks for <repo>/.git/shallow)
+    :param repo: The path to the repo to check
+    :return: True if the repo is shallow, False if not
+    """
+    git_dir = subprocess.check_output(["git", "rev-parse", "--git-dir"],
+                                      cwd=repo.as_posix()).decode().strip()
+    return pathlib.Path(repo).resolve().joinpath(git_dir, "shallow").exists()
+
+
+def ref_exists(repo, ref):
+    """
+    Check if ref exists using show-branch (works for branches, tags, and raw SHAs)
+    :param repo: The path to the repo to check
+    :param ref: The ref to check
+    :return: True if ref exits, False if not
+    """
+    return subprocess.run(["git", "show-branch", ref],
+                          stderr=subprocess.STDOUT,
+                          stdout=subprocess.DEVNULL,
+                          cwd=repo.as_posix()).returncode == 0
+
+
 def fetch_llvm_binutils(root_folder, update, shallow, ref):
     """
     Download llvm and binutils or update them if they exist
@@ -420,7 +465,29 @@ def fetch_llvm_binutils(root_folder, update, shallow, ref):
     if p.is_dir():
         if update:
             utils.print_header("Updating LLVM")
+
+            # Make sure repo is up to date before trying to see if checkout is possible
             subprocess.run(["git", "fetch", "origin"], check=True, cwd=cwd)
+
+            # Explain to the user how to avoid issues if their ref does not exist with
+            # a shallow clone.
+            if repo_is_shallow(p) and not ref_exists(p, ref):
+                utils.print_error(
+                    "\nSupplied ref (%s) does not exist, cannot checkout." %
+                    ref)
+                utils.print_error("To proceed, either:")
+                utils.print_error(
+                    "\t1. Manage the repo yourself and pass '--no-update' to the script."
+                )
+                utils.print_error(
+                    "\t2. Run 'git -C %s fetch --unshallow origin' to get a complete repository."
+                    % cwd)
+                utils.print_error(
+                    "\t3. Delete '%s' and re-run the script with '-s' + '-b <ref>' to get a full set of refs."
+                    % cwd)
+                exit(1)
+
+            # Do the update
             subprocess.run(["git", "checkout", ref], check=True, cwd=cwd)
             local_ref = None
             try:
@@ -440,10 +507,16 @@ def fetch_llvm_binutils(root_folder, update, shallow, ref):
                                check=True,
                                cwd=cwd)
     else:
-        extra_args = ("--depth", "1") if shallow else ()
         utils.print_header("Downloading LLVM")
+
+        extra_args = ()
+        if shallow:
+            extra_args = ("--depth", "1")
+            if ref != "master":
+                extra_args += ("--no-single-branch", )
         subprocess.run([
-            "git", "clone", *extra_args, "git://github.com/llvm/llvm-project",
+            "git", "clone", *extra_args,
+            "https://github.com/llvm/llvm-project",
             p.as_posix()
         ],
                        check=True)
@@ -703,6 +776,11 @@ def stage_specific_cmake_defines(args, dirs, stage):
         if args.build_type == "Release":
             defines['LLVM_ENABLE_WARNINGS'] = 'OFF'
 
+        # Build with assertions enabled if requested (will slow down compilation
+        # so it is not on by default)
+        if args.assertions:
+            defines['LLVM_ENABLE_ASSERTIONS'] = 'ON'
+
         # Where the toolchain should be installed
         defines['CMAKE_INSTALL_PREFIX'] = dirs.install_folder.as_posix()
 
@@ -718,11 +796,6 @@ def stage_specific_cmake_defines(args, dirs, stage):
                     "profdata.prof").as_posix()
             if args.lto:
                 defines['LLVM_ENABLE_LTO'] = args.lto.capitalize()
-
-            # Build with assertions enabled if requested (will slow down compilation
-            # so it is not on by default)
-            if args.assertions:
-                defines['LLVM_ENABLE_ASSERTIONS'] = 'ON'
 
     return defines
 
@@ -789,17 +862,26 @@ def invoke_cmake(args, dirs, env_vars, stage):
 
 def print_install_info(install_folder):
     """
-    Prints out where the LLVM toolchain is installed and how to add to PATH
+    Prints out where the LLVM toolchain is installed, how to add to PATH, and version information
     :param install_folder: Where the LLVM toolchain is installed
     :return:
     """
-    bin_folder = install_folder.joinpath("bin").as_posix()
+    bin_folder = install_folder.joinpath("bin")
     print("\nLLVM toolchain installed to: %s" % install_folder.as_posix())
     print("\nTo use, either run:\n")
-    print("    $ export PATH=%s:${PATH}\n" % bin_folder)
+    print("    $ export PATH=%s:${PATH}\n" % bin_folder.as_posix())
     print("or add:\n")
-    print("    PATH=%s:${PATH}\n" % bin_folder)
+    print("    PATH=%s:${PATH}\n" % bin_folder.as_posix())
     print("to the command you want to use this toolchain.\n")
+
+    clang = bin_folder.joinpath("clang")
+    lld = bin_folder.joinpath("ld.lld")
+    if clang.exists() or lld.exists():
+        print("Version information:\n")
+        for binary in [clang, lld]:
+            if binary.exists():
+                subprocess.run([binary, "--version"], check=True)
+                print()
 
 
 def invoke_ninja(args, dirs, stage):
@@ -862,7 +944,8 @@ def generate_pgo_profiles(args, dirs):
     # Run kernel/build.sh
     subprocess.run([
         dirs.root_folder.joinpath("kernel", "build.sh"), '-b',
-        dirs.build_folder, '-t', args.targets
+        dirs.build_folder, '--pgo',
+        str(args.pgo).lower(), '-t', args.targets
     ],
                    check=True,
                    cwd=dirs.build_folder.as_posix())
