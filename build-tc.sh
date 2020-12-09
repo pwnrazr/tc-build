@@ -49,7 +49,7 @@ tg_post_msg "<code>Building LLVM</code>"
 	--targets "ARM;AArch64" \
 	--shallow-clone \
 	--incremental \
-	--pgo \
+	--pgo kernel-defconfig \
 	--lto full \
 	--build-type "Release" 2>&1 | tee build.log
 
