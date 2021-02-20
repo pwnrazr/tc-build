@@ -17,7 +17,7 @@ from urllib.error import URLError
 
 # This is a known good revision of LLVM for building the kernel
 # To bump this, run 'PATH_OVERRIDE=<path_to_updated_toolchain>/bin kernel/build.sh --allyesconfig'
-GOOD_REVISION = '5a4cd55e5d1452db7043ef9e9f1211172a6a10e1'
+GOOD_REVISION = '4830d458dd0d133354cbe1a616e38dfda8e096b8'
 
 
 class Directories:
@@ -68,7 +68,7 @@ def parse_parameters(root_folder):
     parser.add_argument("-b",
                         "--branch",
                         help=textwrap.dedent("""\
-                        By default, the script builds the master branch (tip of tree) of LLVM. If you would
+                        By default, the script builds the main branch (tip of tree) of LLVM. If you would
                         like to build an older branch, use this parameter. This may be helpful in tracking
                         down an older bug to properly bisect. This value is just passed along to 'git checkout'
                         so it can be a branch name, tag name, or hash (unless '--shallow-clone' is used, which
@@ -76,7 +76,7 @@ def parse_parameters(root_folder):
 
                         """),
                         type=str,
-                        default="master")
+                        default="main")
     parser.add_argument("-B",
                         "--build-folder",
                         help=textwrap.dedent("""\
@@ -143,6 +143,18 @@ def parse_parameters(root_folder):
                         """),
                         type=str,
                         default="ClangBuiltLinux")
+    parser.add_argument("-D",
+                        "--defines",
+                        help=textwrap.dedent("""\
+                        Specify additional cmake values. These will be applied to all cmake invocations.
+
+                        Example: -D LLVM_PARALLEL_COMPILE_JOBS=2 LLVM_PARALLEL_LINK_JOBS=2
+
+                        See https://llvm.org/docs/CMake.html for various cmake values. Note that some of
+                        the options to this script correspond to cmake values.
+
+                        """),
+                        nargs="+")
     parser.add_argument("-i",
                         "--incremental",
                         help=textwrap.dedent("""\
@@ -295,16 +307,17 @@ def parse_parameters(root_folder):
 
                         1. This cannot be used with '--use-good-revision'.
 
-                        2. When no '--branch' is specified, only master is fetched. To work with other branches,
-                           a branch other than master needs to be specified when the repo is first cloned.
+                        2. When no '--branch' is specified, only main is fetched. To work with other branches,
+                           a branch other than main needs to be specified when the repo is first cloned.
 
                                """),
                                action="store_true")
+    # yapf: disable
     parser.add_argument("-t",
                         "--targets",
                         help=textwrap.dedent("""\
                         LLVM is multitargeted by default. Currently, this script only enables the arm32, aarch64,
-                        mips, powerpc, riscv, s390, and x86 backends because that's what the Linux kernel is
+                        bpf, mips, powerpc, riscv, s390, and x86 backends because that's what the Linux kernel is
                         currently concerned with. If you would like to override this, you can use this parameter
                         and supply a list that is supported by LLVM_TARGETS_TO_BUILD:
 
@@ -314,7 +327,8 @@ def parse_parameters(root_folder):
 
                         """),
                         type=str,
-                        default="AArch64;ARM;Mips;PowerPC;RISCV;SystemZ;X86")
+                        default="AArch64;ARM;BPF;Mips;PowerPC;RISCV;SystemZ;X86")
+    # yapf: enable
     clone_options.add_argument("--use-good-revision",
                                help=textwrap.dedent("""\
                         By default, the script updates LLVM to the latest tip of tree revision, which may at times be
@@ -356,7 +370,7 @@ def versioned_binaries(binary_name):
     tot_llvm_ver = 11
     try:
         response = request.urlopen(
-            'https://raw.githubusercontent.com/llvm/llvm-project/master/llvm/CMakeLists.txt'
+            'https://raw.githubusercontent.com/llvm/llvm-project/main/llvm/CMakeLists.txt'
         )
         to_parse = None
         data = response.readlines()
@@ -561,7 +575,7 @@ def fetch_llvm_binutils(root_folder, update, shallow, ref):
         extra_args = ()
         if shallow:
             extra_args = ("--depth", "1")
-            if ref != "master":
+            if ref != "main":
                 extra_args += ("--no-single-branch", )
         subprocess.run([
             "git", "clone", *extra_args,
@@ -900,6 +914,9 @@ def invoke_cmake(args, dirs, env_vars, stage):
     for key in defines:
         newdef = '-D' + key + '=' + defines[key]
         cmake += [newdef]
+    if args.defines:
+        for d in args.defines:
+            cmake += ['-D' + d]
     cmake += [dirs.root_folder.joinpath("llvm-project", "llvm").as_posix()]
 
     cwd = dirs.build_folder.joinpath("stage%d" % stage).as_posix()
