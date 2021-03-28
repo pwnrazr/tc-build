@@ -1,0 +1,14 @@
+--- 
+env: 
+  CIRRUS_CLONE_DEPTH: 1
+  CIRRUS_WORKING_DIR: /tmp/ci
+task: 
+  build_script: 
+    - "source build-tc.sh"
+  container: 
+    cpu: 16
+    image: "panchajanya1999/archlinux:latest"
+    memory: 24G
+  name: clangtc
+  timeout_in: 120m
+  trigger_type: manual
