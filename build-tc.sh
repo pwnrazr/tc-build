@@ -45,13 +45,12 @@ msg "Building LLVM..."
 tg_post_msg "<code>Building LLVM</code>"
 ./build-llvm.py \
 	--clang-vendor "Azure" \
-	--projects "clang;lld;polly" \
-	--targets "ARM;AArch64" \
-	--shallow-clone \
+	--defines "LLVM_PARALLEL_COMPILE_JOBS=$(nproc) LLVM_PARALLEL_LINK_JOBS=$(nproc)" \
 	--incremental \
-	--pgo kernel-defconfig \
-	--lto full \
-	--build-type "Release" 2>&1 | tee build.log
+	--projects "clang;lld" \
+	--shallow-clone \
+	--targets "AArch64" 2>&1 | tee build.log
+	 
 
 # Check if the final clang binary exists or not.
 [ ! -f install/bin/clang-1* ] && {
@@ -63,7 +62,7 @@ tg_post_msg "<code>Building LLVM</code>"
 # Build binutils
 msg "Building binutils..."
 tg_post_msg "<code>Building Binutils</code>"
-./build-binutils.py --targets arm aarch64
+./build-binutils.py --targets aarch64
 
 # Remove unused products
 rm -fr install/include
