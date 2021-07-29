@@ -49,6 +49,7 @@ tg_post_msg "<code>Building LLVM</code>"
 	--incremental \
 	--lto full
 	--projects "clang;lld" \
+	--pgo kernel-defconfig
 	--shallow-clone \
 	--targets "AArch64" 2>&1 | tee build.log
 	 
