@@ -47,6 +47,7 @@ tg_post_msg "<code>Building LLVM</code>"
 	--clang-vendor "Azure" \
 	--defines "LLVM_PARALLEL_COMPILE_JOBS=$(nproc) LLVM_PARALLEL_LINK_JOBS=$(nproc)" \
 	--incremental \
+	--lto full
 	--projects "clang;lld" \
 	--shallow-clone \
 	--targets "AArch64" 2>&1 | tee build.log
