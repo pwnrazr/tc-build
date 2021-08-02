@@ -99,8 +99,8 @@ tg_post_msg "<b>Azure clang compilation Finished</b>%0A<b>Clang Version : </b><c
 # Push to GitHub
 # Update Git repository
 git config --global user.name "Panchajanya1999"
-git config --global user.email "panchajanya@azure-dev.live"
-git clone "https://Panchajanya1999:$GITHUB_TOKEN@github.com/Panchajanya1999/azure-clang.git" rel_repo
+git config --global user.email "rsk52959@gmail.com"
+git clone "https://Panchajanya1999:$GITLAB_TOKEN@gitlab.com/Panchajanya1999/azure-clang.git" rel_repo
 pushd rel_repo || exit
 rm -fr ./*
 cp -r ../install/* .
@@ -112,6 +112,16 @@ LLVM commit: $llvm_commit_url
 Clang Version: $clang_version
 Binutils version: $binutils_ver
 Builder commit: https://github.com/Panchajanya1999/tc-build/commit/$builder_commit"
+
+# Downgrade the HTTP version to 1.1
+git config --global http.version HTTP/1.1
+# Increase git buffer size
+git config --global http.postBuffer 55428800
+
 git push -f
 popd || exit
+
+# Set git buffer to original size
+git config --global http.version HTTP/2
+
 tg_post_msg "<b>Toolchain Compilation Finished and pushed</b>"
