@@ -51,7 +51,7 @@ tg_post_msg "<code>Building LLVM</code>"
 	--projects "clang;lld;polly" \
 	--pgo kernel-defconfig \
 	--shallow-clone \
-	--targets "ARM;AArch64" 2>&1 | tee build.log
+	--targets "ARM;AArch64;X86" 2>&1 | tee build.log
 	 
 
 # Check if the final clang binary exists or not.
