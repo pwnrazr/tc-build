@@ -64,7 +64,7 @@ tg_post_msg "<code>Building LLVM</code>"
 # Build binutils
 msg "Building binutils..."
 tg_post_msg "<code>Building Binutils</code>"
-./build-binutils.py --targets arm aarch64 x86_64
+./build-binutils.py --targets arm aarch64
 
 # Remove unused products
 rm -fr install/include
